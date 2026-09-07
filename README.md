@@ -1,5 +1,7 @@
 # Block Blast
 
+**▶ Play it in your browser: https://erenanbar1.github.io/block-buster/**
+
 A portrait-orientation mobile block-puzzle game built in Unity 6.3 (URP 2D).
 
 Drag one of three offered pieces onto an 8×8 grid. Fill a row or a column and it
@@ -88,3 +90,36 @@ occupancy is consistent and that no completed line was ever left standing.
 The PlayMode suite drives real `PointerEventData` through the uGUI drag handlers
 rather than calling the controller directly, so the pointer-to-board maths and
 the drag-layer reparenting are covered as well.
+
+## Deployment
+
+The playable build lives in `docs/` and GitHub Pages serves it directly
+(Settings ▸ Pages ▸ Deploy from a branch ▸ `main` / `docs`). There is no CI
+build step: building Unity on a runner would need a Unity licence in repository
+secrets, whereas committing the built player needs no secrets at all.
+
+Rebuild and redeploy after changing the project:
+
+```
+Unity.exe -quit -batchmode -nographics \
+          -projectPath <project> \
+          -buildTarget WebGL \
+          -executeMethod BlockBlast.EditorTools.WebGLBuilder.Build \
+          -logFile build.log
+```
+
+then commit `docs/` and push — Pages picks it up within a minute.
+
+`WebGLBuilder` applies the two settings the deployment depends on rather than
+trusting whatever is saved in ProjectSettings: **Gzip compression with the
+decompression fallback enabled**. GitHub Pages serves static files without a
+`Content-Encoding` header, so the player has to decompress the build itself;
+without the fallback the page loads to a black screen. It also treats a build as
+failed when the error count is non-zero or `index.html` is missing, because Unity
+will otherwise report "Succeeded" for a build that wrote nothing at all.
+
+To test the exact bytes Pages will serve, run any static server over `docs/`:
+
+```
+python -m http.server 8123 --directory docs
+```

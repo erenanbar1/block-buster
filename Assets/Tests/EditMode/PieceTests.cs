@@ -163,31 +163,11 @@ namespace BlockBlast.Tests
                 }
         }
 
-        [Test]
-        public void CrowdedBoardsFavourSmallerPieces()
-        {
-            var empty = new BoardModel(8);
-            var crowded = new BoardModel(8);
-            for (int y = 0; y < 6; y++)
-                for (int x = 0; x < 8; x++)
-                    if ((x * 3 + y * 5) % 4 != 0) crowded.SetCell(x, y, 0);
-
-            Assert.Greater(AverageCells(empty, 1), AverageCells(crowded, 1),
-                "pieces dealt on a packed board should be smaller on average");
-        }
-
-        static float AverageCells(BoardModel board, int seed)
-        {
-            var gen = new PieceGenerator(seed);
-            int total = 0, count = 0;
-            for (int i = 0; i < 400; i++)
-                foreach (var p in gen.NextTrio(board))
-                {
-                    total += p.Shape.CellCount;
-                    count++;
-                }
-            return (float)total / count;
-        }
+        // Piece size used to be damped by board crowding alone, which made the game
+        // easier the worse you were doing and flattened the difficulty curve entirely.
+        // Size is now driven by the stage, with crowding kept only as a mercy valve near
+        // a full board. See StageAwareGeneratorTests.ANearlyFullBoardStillGetsMercy and
+        // LaterStagesDealBulkierPiecesOnAverage.
 
         static bool AnyFits(BoardModel board, PieceInstance[] trio)
         {

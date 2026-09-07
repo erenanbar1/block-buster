@@ -18,6 +18,8 @@ namespace BlockBlast.Tests
             public int Moves;
             public int Clears;
             public int BestCombo;
+            public int Stage = 1;
+            public int JunkDropped;
         }
 
         [Test]
@@ -31,27 +33,66 @@ namespace BlockBlast.Tests
             }
         }
 
+        /// <summary>
+        /// The tuning instrument for the whole difficulty curve. Plays 60 complete games
+        /// and reports the shape of a typical run, so balance is measured rather than
+        /// guessed. Target: a run that builds to a crescendo and ends, roughly 5-10
+        /// minutes of play.
+        /// </summary>
         [Test]
-        public void GreedyBotSurvivesAReasonableNumberOfMoves()
+        public void RunsBuildToACrescendoAndEnd()
         {
             var lengths = new List<int>();
             var scores = new List<int>();
+            var stages = new List<int>();
+            var combos = new List<int>();
+            int totalJunk = 0;
+
             for (int seed = 0; seed < 60; seed++)
             {
                 var run = Play(seed, verify: false);
                 lengths.Add(run.Moves);
                 scores.Add(run.Score);
+                stages.Add(run.Stage);
+                combos.Add(run.BestCombo);
+                totalJunk += run.JunkDropped;
             }
             lengths.Sort();
             scores.Sort();
-            int medianMoves = lengths[lengths.Count / 2];
-            int medianScore = scores[scores.Count / 2];
+            stages.Sort();
+            combos.Sort();
 
-            Debug.Log($"[sim] median moves {medianMoves}, median score {medianScore}, " +
-                      $"longest {lengths[lengths.Count - 1]}, best {scores[scores.Count - 1]}");
+            int mid = lengths.Count / 2;
+            int medianMoves = lengths[mid];
+            int medianScore = scores[mid];
+            int medianStage = stages[mid];
+            int medianCombo = combos[mid];
 
-            Assert.Greater(medianMoves, 25,
-                "a competent player should get well past a couple of trays before dying");
+            Debug.Log($"[sim] median moves {medianMoves}, score {medianScore}, " +
+                      $"stage {medianStage}, best combo {medianCombo} | " +
+                      $"longest {lengths[lengths.Count - 1]}, top score {scores[scores.Count - 1]}, " +
+                      $"deepest stage {stages[stages.Count - 1]}, junk dropped {totalJunk}");
+
+            Assert.Greater(medianMoves, 30,
+                "runs are ending too early to feel like a game");
+            Assert.Less(medianMoves, 400,
+                "runs never build to a crescendo - the pressure curve is too flat");
+            Assert.GreaterOrEqual(medianStage, 3,
+                "a typical run should get past the opening stages");
+            Assert.GreaterOrEqual(medianCombo, 3,
+                "combos are the main source of drama and should be reachable in a normal run");
+            Assert.Greater(totalJunk, 0, "junk pressure never fired across 60 runs");
+        }
+
+        [Test]
+        public void EveryRunTerminates()
+        {
+            for (int seed = 100; seed < 130; seed++)
+            {
+                var run = Play(seed, verify: false);
+                Assert.Less(run.Moves, 1500, "seed " + seed + " never ended");
+                Assert.Greater(run.Moves, 0);
+            }
         }
 
         [Test]
@@ -120,13 +161,14 @@ namespace BlockBlast.Tests
         {
             var board = new BoardModel(8);
             var gen = new PieceGenerator(seed);
+            var junk = new JunkSpawner(seed);
+            var progress = new RunProgress();
             var run = new GameRun();
-            int combo = 0;
             var origins = new List<Vector2Int>();
 
             for (int tray = 0; tray < 500; tray++)
             {
-                var pieces = new List<PieceInstance>(gen.NextTrio(board));
+                var pieces = new List<PieceInstance>(gen.NextTrio(board, progress.Profile, 3));
 
                 while (pieces.Count > 0)
                 {
@@ -154,22 +196,44 @@ namespace BlockBlast.Tests
                     var result = board.Place(chosen.Shape, bestOrigin, chosen.ColorIndex);
                     pieces.RemoveAt(bestPiece);
 
-                    combo = ScoreRules.NextCombo(combo, result);
-                    run.Score += ScoreRules.ScoreFor(result, combo);
+                    int stageBefore = progress.Stage;
+                    var events = progress.RegisterPlacement(result);
+
+                    run.Score = progress.Score;
                     run.Moves++;
                     if (result.LinesCleared > 0) run.Clears++;
-                    run.BestCombo = Mathf.Max(run.BestCombo, combo);
+                    run.BestCombo = Mathf.Max(run.BestCombo, progress.Combo);
+                    run.Stage = progress.Stage;
 
                     if (verify)
                     {
                         Assert.AreEqual(before + chosen.Shape.CellCount - result.ClearedCellCount,
                             board.OccupiedCount, "occupancy drifted after a placement");
                         Assert.AreEqual(CountOccupied(board), board.OccupiedCount);
+                        Assert.GreaterOrEqual(progress.Stage, stageBefore, "stage went backwards");
                         for (int i = 0; i < board.Size; i++)
                         {
                             Assert.IsFalse(board.IsRowFull(i));
                             Assert.IsFalse(board.IsColumnFull(i));
                         }
+                    }
+
+                    // Pressure: the board fills on its own once the run gets going.
+                    if (events.JunkDue)
+                    {
+                        var shapes = new List<PieceShape>();
+                        foreach (var p in pieces) shapes.Add(p.Shape);
+
+                        // The tray can already be stuck here - that is a normal game over
+                        // on the next iteration. Junk only has to avoid *causing* it.
+                        bool playableBefore = shapes.Count > 0 && board.HasAnyPlacement(shapes);
+
+                        var dropped = junk.Spawn(board, shapes, events.JunkBlocks);
+                        run.JunkDropped += dropped.Count;
+
+                        if (verify && playableBefore)
+                            Assert.IsTrue(board.HasAnyPlacement(shapes),
+                                "a junk drop took away the tray's last legal move");
                     }
                 }
             }

@@ -52,16 +52,53 @@ see can never drift from what the player sees.
 | --- | --- |
 | Placing a piece | 1 per block |
 | 1 / 2 / 3 / 4 lines at once | 10 / 30 / 60 / 100 |
-| Combo (consecutive clearing moves) | ×1 → ×5, one step per two combos |
+| Combo (clearing moves, one dry move forgiven) | ×1 → ×5, one step per two combos |
 | Perfect clear (board left empty) | +300 |
+| Stage | multiplies everything above |
 
 A row and a column clearing together share their intersection: it is removed and
 scored once, not twice.
 
-**Fairness.** The dealer damps large pieces as the board fills, and will not hand
-out a trio in which nothing at all can be placed — if the random draw keeps
-missing, one slot is replaced with a shape that is known to fit. A game over is
-therefore always a real dead end, never bad luck in the deal.
+## Progression
+
+A run is one continuous game divided into stages, defined in a single table in
+`Core/DifficultyCurve.cs`. Stages advance on **lines cleared**, not score —
+scoring accelerates as multipliers grow, so a score ladder would make late stages
+arrive faster the better you play, which is backwards.
+
+| Stage | Name | Lines | Pieces unlocked | Junk |
+| --- | --- | --- | --- | --- |
+| 1 | Warm Up | 4 | dots, short bars, 2×2, small corners | — |
+| 2 | Rolling | 5 | + L/J/T/S/Z, 4-bars | — |
+| 3 | Heating Up | 6 | + 3×2 blocks, 3×3 corners | 1 per 12 |
+| 4 | Pressure | 7 | + 5-bars, 3×3 square | 1 per 8 |
+| 5 | Squeeze | 8 | + plus, diagonals | 2 per 8 |
+| 6 | Overload | 9 | everything | 2 per 6 |
+| 7+ | Overload N | +2 each | everything | creeps to 3 per 5 |
+
+Two things escalate together. The **piece pool** gets meaner: each stage unlocks
+a tier and raises the odds of bulky shapes. The **board fills on its own**: from
+stage 3, junk blocks are seeded periodically. Skill alone cannot hold the line
+forever, so a run builds to a crescendo instead of wandering until an unlucky
+trio ends it.
+
+**Fairness rules**, all enforced in code rather than left to tuning:
+
+- The dealer never hands out a trio in which nothing can be placed. If the random
+  draw keeps missing, one slot is replaced with a shape known to fit.
+- Junk hugs existing blocks and edges, never completes a line, and the entire
+  drop is rolled back if it would leave the tray without a legal move. Junk
+  raises pressure; it never lands the killing blow.
+- Junk waits for a quiet beat rather than landing on top of a clear.
+- Above ~75% board fill, bulky shapes are damped again regardless of stage.
+  Being handed a 3×3 into a packed board is unfair, not hard.
+
+A game over is therefore always a real dead end, never bad luck in the deal.
+
+**Combos survive one non-clearing placement.** A tray holds three pieces and
+rarely clears on more than one, so resetting the chain instantly pinned every
+combo at ×1 and made the multiplier unreachable. With one move of grace, chains
+of 3-5 are routine and ×5 becomes a genuine goal.
 
 ## Mobile specifics
 
@@ -83,9 +120,26 @@ Assets/Tests/PlayMode/   14 tests - bootstrap, placement, drag input, save/resum
 
 Run them from **Window ▸ General ▸ Test Runner**.
 
-The EditMode suite includes a soak test that plays 100 complete games with a
-greedy bot, asserting after every one of tens of thousands of placements that
-occupancy is consistent and that no completed line was ever left standing.
+The EditMode suite includes a soak test that plays complete games with a greedy
+bot, asserting after every one of tens of thousands of placements that occupancy
+is consistent, that no completed line was ever left standing, that the stage never
+goes backwards, and that no junk drop ever took away the tray's last legal move.
+
+That bot is also the **tuning instrument for the difficulty curve**.
+`RunsBuildToACrescendoAndEnd` plays 60 full games and logs the shape of a typical
+run, so balance is measured rather than guessed:
+
+```
+[sim] median moves 89, score 3282, stage 6, best combo 5 |
+      longest 308, top score 41939, deepest stage 14, junk dropped 1219
+```
+
+A median run is ~89 placements (5-10 minutes) reaching stage 6 with a peak combo
+of 5, while an exceptional run reaches stage 14 and scores 10× the median. Before
+the stage system the same bot ran a median of 149 moves — and up to 1000 — with
+combos pinned at 1, because difficulty depended only on how badly you were
+playing. Retune by editing the table in `Core/DifficultyCurve.cs` and re-reading
+that line.
 
 The PlayMode suite drives real `PointerEventData` through the uGUI drag handlers
 rather than calling the controller directly, so the pointer-to-board maths and

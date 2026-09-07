@@ -12,7 +12,12 @@ namespace BlockBlast.Presentation
         TextMeshProUGUI scoreText;
         TextMeshProUGUI bestText;
         TextMeshProUGUI comboText;
+        TextMeshProUGUI stageText;
+        Image stageBarFill;
+        float stageBarWidth;
+        Coroutine stageBarRoutine;
         RectTransform comboBadge;
+        Image comboBackground;
         CanvasGroup comboGroup;
 
         CanvasGroup gameOverGroup;
@@ -81,18 +86,47 @@ namespace BlockBlast.Presentation
             Ui.AnchorTo(scoreText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -74f),
                 new Vector2(900f, 160f));
 
+            // Row three: which stage you are on and how close the next one is. This is
+            // the only thing on screen that promises the run is going somewhere.
+            stageText = Ui.Text("Stage", top, "WARM UP", 32f, Theme.MutedTextColor);
+            Ui.AnchorTo(stageText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -212f),
+                new Vector2(700f, 40f));
+            stageText.characterSpacing = 8f;
+
+            stageBarWidth = 360f;
+            var barTrack = Ui.Image("StageBarTrack", top, SpriteFactory.RoundedRect(48, 20),
+                Theme.StageBarTrack, Image.Type.Sliced);
+            Ui.AnchorTo(barTrack.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0f, -254f), new Vector2(stageBarWidth, 20f));
+
+            stageBarFill = Ui.Image("StageBarFill", barTrack.rectTransform, SpriteFactory.RoundedRect(48, 20),
+                Theme.StageBarColor, Image.Type.Sliced);
+            // Pinned to the track's left edge, stretched vertically, width driven by sizeDelta.
+            stageBarFill.rectTransform.anchorMin = new Vector2(0f, 0f);
+            stageBarFill.rectTransform.anchorMax = new Vector2(0f, 1f);
+            stageBarFill.rectTransform.pivot = new Vector2(0f, 0.5f);
+            stageBarFill.rectTransform.anchoredPosition = Vector2.zero;
+            stageBarFill.rectTransform.sizeDelta = Vector2.zero;
+
             // ---- combo badge -----------------------------------------------------
+            // Floats over the top of the board rather than above it: the stage bar owns
+            // the space between the score and the board, and there is no room for both.
             comboBadge = Ui.Rect("ComboBadge", root);
-            Ui.AnchorTo(comboBadge, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 620f),
-                new Vector2(420f, 90f));
+            Ui.AnchorTo(comboBadge, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 468f),
+                new Vector2(470f, 90f));
             comboGroup = comboBadge.gameObject.AddComponent<CanvasGroup>();
             comboGroup.alpha = 0f;
 
-            var comboBg = Ui.Image("Bg", comboBadge, SpriteFactory.RoundedRect(96, 42), Theme.Hex(0xFF7A18, 0.92f),
-                Image.Type.Sliced);
-            Ui.Fill(comboBg.rectTransform);
+            comboBackground = Ui.Image("Bg", comboBadge, SpriteFactory.RoundedRect(96, 42),
+                Theme.Hex(0xFF7A18, 0.92f), Image.Type.Sliced);
+            Ui.Fill(comboBackground.rectTransform);
             comboText = Ui.Text("Label", comboBadge, "COMBO x2", 52f, Color.white);
-            Ui.Fill(comboText.rectTransform);
+            Ui.Fill(comboText.rectTransform, 22f);
+            // The badge is shared with stage-up banners, whose text is much longer than
+            // "COMBO x3", so let the label shrink to fit rather than spill past the pill.
+            comboText.enableAutoSizing = true;
+            comboText.fontSizeMin = 30f;
+            comboText.fontSizeMax = 52f;
 
             // ---- game over card ---------------------------------------------------
             var overlay = Ui.Rect("GameOver", root, raycast: true);
@@ -171,23 +205,61 @@ namespace BlockBlast.Presentation
             if (image != null) image.color = Theme.WithAlpha(Color.white, muted ? 0.05f : 0.10f);
         }
 
-        // ---- combo ----------------------------------------------------------------
+        // ---- stage ------------------------------------------------------------------
 
-        public void ShowCombo(int combo)
+        /// <summary>Updates the stage name and how full the progress bar is.</summary>
+        public void SetStage(string name, float progress01, bool animate = true)
         {
-            if (comboRoutine != null) StopCoroutine(comboRoutine);
-            comboText.text = "COMBO x" + ScoreRulesMultiplier(combo);
-            comboRoutine = StartCoroutine(ComboFlash());
+            if (stageText != null) stageText.text = name.ToUpperInvariant();
+            float target = Mathf.Clamp01(progress01) * stageBarWidth;
+
+            if (stageBarRoutine != null) StopCoroutine(stageBarRoutine);
+            if (!animate || !isActiveAndEnabled)
+            {
+                SetBarWidth(target);
+                return;
+            }
+            stageBarRoutine = StartCoroutine(FillBar(target));
         }
 
-        static int ScoreRulesMultiplier(int combo) => Core.ScoreRules.ComboMultiplier(combo);
+        IEnumerator FillBar(float target)
+        {
+            float from = stageBarFill.rectTransform.sizeDelta.x;
+            yield return Tween.Run(0.25f, Tween.EaseOutCubic,
+                t => SetBarWidth(Mathf.Lerp(from, target, t)));
+        }
 
-        IEnumerator ComboFlash()
+        /// <summary>
+        /// The fill anchors to the track's left edge and stretches only vertically, so its
+        /// width comes straight from sizeDelta rather than from an offset off the parent.
+        /// </summary>
+        void SetBarWidth(float width)
+            => stageBarFill.rectTransform.sizeDelta = new Vector2(Mathf.Max(0f, width), 0f);
+
+        // ---- banners -----------------------------------------------------------------
+
+        public void ShowCombo(int combo)
+            => ShowBanner("COMBO x" + Core.ScoreRules.ComboMultiplier(combo), Theme.Hex(0xFF7A18, 0.92f));
+
+        /// <summary>The stage-up beat: the reward for clearing a stage's worth of lines.</summary>
+        public void ShowStageBanner(int stage, string name)
+            => ShowBanner("STAGE " + stage + "  " + name.ToUpperInvariant(), Theme.Hex(0x2FD86B, 0.94f), 1.35f);
+
+        /// <summary>One flashing badge, reused for combos and stage-ups.</summary>
+        public void ShowBanner(string text, Color color, float hold = 0.75f)
+        {
+            if (comboRoutine != null) StopCoroutine(comboRoutine);
+            comboText.text = text;
+            if (comboBackground != null) comboBackground.color = color;
+            comboRoutine = StartCoroutine(ComboFlash(hold));
+        }
+
+        IEnumerator ComboFlash(float hold)
         {
             comboGroup.alpha = 1f;
             comboBadge.localScale = Vector3.one * 0.6f;
             yield return Tween.Scale(comboBadge, Vector3.one * 0.6f, Vector3.one, 0.22f, Tween.EaseOutBack);
-            yield return new WaitForSecondsRealtime(0.75f);
+            yield return new WaitForSecondsRealtime(hold);
             yield return Tween.Run(0.3f, null, t => comboGroup.alpha = 1f - t);
             comboGroup.alpha = 0f;
         }

@@ -5,6 +5,9 @@ namespace BlockBlast.Core
     /// <summary>
     /// Scoring maths, kept separate from the game loop so the numbers can be tuned and
     /// unit tested without touching presentation.
+    ///
+    /// Combo state lives in <see cref="RunProgress"/>, which owns the grace rule that
+    /// lets a chain survive a single non-clearing placement.
     /// </summary>
     public static class ScoreRules
     {
@@ -32,20 +35,34 @@ namespace BlockBlast.Core
             return Mathf.Min(multiplier, MaxComboMultiplier);
         }
 
-        /// <summary>Total points awarded for a single placement, combo included.</summary>
-        public static int ScoreFor(PlacementResult result, int comboAfterPlacement)
+        /// <summary>
+        /// Total points for a single placement: blocks dropped, plus line value scaled
+        /// by the combo, all multiplied by the stage so late-game numbers feel big.
+        /// </summary>
+        public static int ScoreFor(PlacementResult result, int comboAfterPlacement, int stageMultiplier = 1)
         {
+            if (stageMultiplier < 1) stageMultiplier = 1;
+
             int score = PlacementScore(result.PlacedCells);
             int lines = result.LinesCleared;
             if (lines > 0)
                 score += LineBaseScore(lines) * ComboMultiplier(comboAfterPlacement);
             if (result.PerfectClear)
                 score += PerfectClearBonus;
-            return score;
+            return score * stageMultiplier;
         }
 
-        /// <summary>A clear extends the combo, a placement that clears nothing ends it.</summary>
-        public static int NextCombo(int currentCombo, PlacementResult result)
-            => result.LinesCleared > 0 ? currentCombo + 1 : 0;
+        /// <summary>Name for a multi-line clear, shown as a popup. Null when there is nothing to shout about.</summary>
+        public static string ClearTitle(int linesCleared)
+        {
+            switch (linesCleared)
+            {
+                case 2: return "DOUBLE!";
+                case 3: return "TRIPLE!";
+                case 0:
+                case 1: return null;
+                default: return "BLAST!";
+            }
+        }
     }
 }

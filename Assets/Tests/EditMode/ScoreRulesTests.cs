@@ -52,12 +52,35 @@ namespace BlockBlast.Tests
             Assert.AreEqual(ScoreRules.MaxComboMultiplier, ScoreRules.ComboMultiplier(99));
         }
 
+        // Combo sequencing moved to RunProgress, which owns the grace rule.
+        // See RunProgressTests.
+
         [Test]
-        public void ComboIsExtendedByClearsAndBrokenByADryPlacement()
+        public void StageMultiplierScalesTheWholePlacement()
         {
-            Assert.AreEqual(1, ScoreRules.NextCombo(0, Result(4, 1, 0)));
-            Assert.AreEqual(4, ScoreRules.NextCombo(3, Result(4, 0, 1)));
-            Assert.AreEqual(0, ScoreRules.NextCombo(7, Result(4, 0, 0)));
+            var result = Result(5, 1, 0);
+            int atStage1 = ScoreRules.ScoreFor(result, 1, 1);
+            Assert.AreEqual(atStage1 * 4, ScoreRules.ScoreFor(result, 1, 4));
+        }
+
+        [Test]
+        public void StageMultiplierIsNeverBelowOne()
+        {
+            var result = Result(5, 1, 0);
+            int baseline = ScoreRules.ScoreFor(result, 1, 1);
+            Assert.AreEqual(baseline, ScoreRules.ScoreFor(result, 1, 0));
+            Assert.AreEqual(baseline, ScoreRules.ScoreFor(result, 1, -7));
+        }
+
+        [Test]
+        public void MultiLineClearsGetALabelAndSingleLinesDoNot()
+        {
+            Assert.IsNull(ScoreRules.ClearTitle(0));
+            Assert.IsNull(ScoreRules.ClearTitle(1));
+            Assert.AreEqual("DOUBLE!", ScoreRules.ClearTitle(2));
+            Assert.AreEqual("TRIPLE!", ScoreRules.ClearTitle(3));
+            Assert.AreEqual("BLAST!", ScoreRules.ClearTitle(4));
+            Assert.AreEqual("BLAST!", ScoreRules.ClearTitle(9));
         }
 
         [Test]

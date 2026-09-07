@@ -116,6 +116,12 @@ namespace BlockBlast.Presentation
 
         public Vector3 CellToWorld(int x, int y) => Grid.TransformPoint(CellToLocal(x, y));
 
+        /// <summary>The block image for a cell, so callers can animate an individual block.</summary>
+        public RectTransform BlockAt(int x, int y)
+            => InBounds(x, y) ? blocks[Index(x, y)].rectTransform : null;
+
+        bool InBounds(int x, int y) => x >= 0 && y >= 0 && x < Size && y < Size;
+
         // ---- block visuals ---------------------------------------------------
 
         public void Refresh(BoardModel model)

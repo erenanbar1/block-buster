@@ -8,7 +8,10 @@ namespace BlockBlast.Game
     [Serializable]
     public class SaveData
     {
-        public int version = 1;
+        /// <summary>2 added stage progression. Version 1 saves are discarded on load.</summary>
+        public const int CurrentVersion = 2;
+
+        public int version = CurrentVersion;
         public int score;
         public int combo;
         public int boardSize;
@@ -16,6 +19,15 @@ namespace BlockBlast.Game
         public string[] trayShapeIds;   // empty string = consumed slot
         public int[] trayColors;
         public int generatorSeed;
+
+        // ---- stage progression (version 2) ----
+        public int stage = 1;
+        public int linesThisStage;
+        public int totalLines;
+        public int comboMisses;
+        public int bestCombo;
+        public int placementsSinceJunk;
+        public int placements;
     }
 
     /// <summary>
@@ -76,6 +88,10 @@ namespace BlockBlast.Game
         static bool IsValid(SaveData d)
         {
             if (d == null || d.cells == null || d.trayShapeIds == null || d.trayColors == null) return false;
+            // A version 1 save predates stages; resuming it would start mid-run at stage 1
+            // with no lines banked, which reads as lost progress. Cleaner to drop it.
+            if (d.version != SaveData.CurrentVersion) return false;
+            if (d.stage < 1) return false;
             if (d.boardSize <= 0 || d.cells.Length != d.boardSize * d.boardSize) return false;
             if (d.trayShapeIds.Length != d.trayColors.Length) return false;
             foreach (var id in d.trayShapeIds)
@@ -83,17 +99,24 @@ namespace BlockBlast.Game
             return true;
         }
 
-        public static SaveData Capture(BoardModel board, IList<PieceInstance> tray, int score, int combo, int seed)
+        public static SaveData Capture(BoardModel board, IList<PieceInstance> tray, RunProgress progress, int seed)
         {
             var data = new SaveData
             {
-                score = score,
-                combo = combo,
+                score = progress.Score,
+                combo = progress.Combo,
                 boardSize = board.Size,
                 cells = board.Snapshot(),
                 trayShapeIds = new string[tray.Count],
                 trayColors = new int[tray.Count],
-                generatorSeed = seed
+                generatorSeed = seed,
+                stage = progress.Stage,
+                linesThisStage = progress.LinesThisStage,
+                totalLines = progress.TotalLines,
+                comboMisses = progress.ComboMisses,
+                bestCombo = progress.BestCombo,
+                placementsSinceJunk = progress.PlacementsSinceJunk,
+                placements = progress.Placements
             };
             for (int i = 0; i < tray.Count; i++)
             {

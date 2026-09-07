@@ -15,13 +15,17 @@ namespace BlockBlast.Game
     public sealed class GameController : MonoBehaviour
     {
         public BoardModel Board { get; private set; }
-        public int Score { get; private set; }
         public int Best { get; private set; }
-        public int Combo { get; private set; }
         public bool IsGameOver { get; private set; }
         public bool IsBusy { get; private set; }
         public TrayView Tray => tray;
         public BoardView BoardView => boardView;
+
+        /// <summary>Stage, combo and junk cadence for the current run.</summary>
+        public RunProgress Progress => progress;
+        public int Score => progress.Score;
+        public int Combo => progress.Combo;
+        public int Stage => progress.Stage;
 
         /// <summary>Raised after a placement has been fully resolved (model + score).</summary>
         public event Action<PlacementResult, int> PiecePlaced;
@@ -33,6 +37,8 @@ namespace BlockBlast.Game
         EffectsLayer effects;
         SfxPlayer sfx;
         PieceGenerator generator;
+        JunkSpawner junk;
+        readonly RunProgress progress = new RunProgress();
         int seed;
 
         readonly List<PieceInstance> trayModel = new List<PieceInstance>(TrayView.SlotCount);
@@ -66,12 +72,13 @@ namespace BlockBlast.Game
         {
             seed = Environment.TickCount;
             generator = new PieceGenerator(seed, Theme.Blocks.Length);
+            junk = new JunkSpawner(seed);
+            progress.Reset();
             Board.Clear();
-            Score = 0;
-            Combo = 0;
             IsGameOver = false;
             boardView.Refresh(Board);
             hud.SetScore(0, animate: false);
+            hud.SetStage(progress.Profile.Name, 0f, animate: false);
             hud.HideGameOver();
             hud.HideCombo();
             RefillTray();
@@ -85,12 +92,14 @@ namespace BlockBlast.Game
 
             seed = data.generatorSeed;
             generator = new PieceGenerator(seed, Theme.Blocks.Length);
+            junk = new JunkSpawner(seed);
             Board.Restore(data.cells);
-            Score = data.score;
-            Combo = data.combo;
+            progress.Restore(data.stage, data.linesThisStage, data.totalLines, data.score,
+                data.combo, data.comboMisses, data.bestCombo, data.placementsSinceJunk, data.placements);
             IsGameOver = false;
             boardView.Refresh(Board);
             hud.SetScore(Score, animate: false);
+            hud.SetStage(progress.Profile.Name, progress.StageProgress, animate: false);
             hud.HideGameOver();
 
             var restored = new List<PieceInstance>();
@@ -140,7 +149,7 @@ namespace BlockBlast.Game
 
         // ---- tray ------------------------------------------------------------------
 
-        void RefillTray() => SetTray(generator.NextTrio(Board, TrayView.SlotCount));
+        void RefillTray() => SetTray(generator.NextTrio(Board, progress.Profile, TrayView.SlotCount));
 
         /// <summary>
         /// Replaces the whole tray. Used when refilling, when resuming a saved run, and by
@@ -231,9 +240,8 @@ namespace BlockBlast.Game
             trayModel[slot] = null;
 
             var result = Board.Place(shape, origin, colorIndex);
-            Combo = ScoreRules.NextCombo(Combo, result);
-            int gained = ScoreRules.ScoreFor(result, Combo);
-            Score += gained;
+            var events = progress.RegisterPlacement(result);
+            int gained = events.PointsScored;
 
             yield return boardView.AnimatePlacement(shape, origin, colorIndex);
             sfx?.PlayPlace();
@@ -246,9 +254,13 @@ namespace BlockBlast.Game
             {
                 sfx?.PlayClear(Combo);
                 effects.Shake(9f + result.LinesCleared * 7f);
-                if (Combo >= 2) hud.ShowCombo(Combo);
                 effects.Popup(centre, "+" + gained, Theme.Hex(0xFFD400), 76f);
                 yield return boardView.AnimateClear(result.ClearedCells, origin);
+
+                // Landmarks the player can actually reach, unlike a perfect clear.
+                string title = ScoreRules.ClearTitle(result.LinesCleared);
+                if (title != null)
+                    effects.Popup(centre, title, Theme.Hex(0x18C7E8), 78f, 190f);
 
                 if (result.PerfectClear)
                 {
@@ -271,8 +283,16 @@ namespace BlockBlast.Game
                 SaveSystem.SaveBest(Best);
             }
 
+            // Stage-up outranks the combo badge: it is the bigger moment.
+            if (events.StageAdvanced) yield return StageUpRoutine();
+            else if (events.Combo >= 2 && events.ComboExtended) hud.ShowCombo(events.Combo);
+
+            hud.SetStage(progress.Profile.Name, progress.StageProgress);
+
             if (tray.IsEmpty) RefillTray();
             else tray.RefreshPlayability(Board);
+
+            if (events.JunkDue) yield return DropJunkRoutine(events.JunkBlocks);
 
             tray.SetInteractable(true);
             IsBusy = false;
@@ -280,6 +300,48 @@ namespace BlockBlast.Game
             PiecePlaced?.Invoke(result, gained);
             Persist();
             EvaluateGameOver();
+        }
+
+        /// <summary>The reward beat for finishing a stage, before the next one bites.</summary>
+        IEnumerator StageUpRoutine()
+        {
+            var profile = progress.Profile;
+            sfx?.PlayPerfect();
+            hud.ShowStageBanner(profile.Stage, profile.Name);
+            effects.Shake(18f);
+
+            // A ring of confetti around the board edge, so the moment reads as a reward.
+            for (int i = 0; i < Board.Size; i++)
+            {
+                effects.Burst(boardView.CellToWorld(i, Board.Size - 1), Theme.Block(i), 6);
+                effects.Burst(boardView.CellToWorld(i, 0), Theme.Block(i + 3), 6);
+            }
+            yield return new WaitForSecondsRealtime(0.45f);
+        }
+
+        /// <summary>
+        /// Seeds junk onto the board. The spawner guarantees the tray still has a legal
+        /// move afterwards, so this raises pressure without ever being the killing blow.
+        /// </summary>
+        IEnumerator DropJunkRoutine(int blocks)
+        {
+            var cells = junk.Spawn(Board, tray.RemainingShapes(), blocks);
+            if (cells.Count == 0) yield break;
+
+            sfx?.PlayInvalid();
+            effects.Shake(10f);
+
+            foreach (var cell in cells)
+            {
+                boardView.SetCell(cell.x, cell.y, JunkSpawner.JunkColorIndex);
+                var rt = boardView.BlockAt(cell.x, cell.y);
+                if (rt != null)
+                    StartCoroutine(Tween.Scale(rt, Vector3.one * 0.4f, Vector3.one, 0.22f, Tween.EaseOutBack));
+                effects.Burst(boardView.CellToWorld(cell.x, cell.y), Theme.JunkColor, 5);
+            }
+
+            tray.RefreshPlayability(Board);
+            yield return new WaitForSecondsRealtime(0.2f);
         }
 
         // ---- end of run --------------------------------------------------------------
@@ -302,7 +364,7 @@ namespace BlockBlast.Game
         void Persist()
         {
             if (IsGameOver) return;
-            SaveSystem.SaveGame(SaveSystem.Capture(Board, trayModel, Score, Combo, seed));
+            SaveSystem.SaveGame(SaveSystem.Capture(Board, trayModel, progress, seed));
         }
 
         void OnApplicationPause(bool paused)

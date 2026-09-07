@@ -42,6 +42,14 @@ namespace BlockBlast.Presentation
         public static readonly Color MutedTextColor = new Color(0.72f, 0.68f, 0.88f, 1f);
         public static readonly Color PanelColor = Hex(0x241A52);
 
+        /// <summary>
+        /// Junk blocks are deliberately grey and desaturated. They must never be mistaken
+        /// for a piece the player placed, or the pressure reads as the game cheating.
+        /// </summary>
+        public static readonly Color JunkColor = Hex(0x6B6480);
+        public static readonly Color StageBarColor = Hex(0x18C7E8);
+        public static readonly Color StageBarTrack = new Color(1f, 1f, 1f, 0.10f);
+
         /// <summary>Block colours. Index into this from BoardModel colour indices.</summary>
         public static readonly Color[] Blocks =
         {
@@ -57,6 +65,7 @@ namespace BlockBlast.Presentation
 
         public static Color Block(int index)
         {
+            if (index == Core.JunkSpawner.JunkColorIndex) return JunkColor;
             if (Blocks.Length == 0) return Color.white;
             int i = ((index % Blocks.Length) + Blocks.Length) % Blocks.Length;
             return Blocks[i];

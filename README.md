@@ -114,8 +114,10 @@ of 3-5 are routine and ×5 becomes a genuine goal.
 ## Tests
 
 ```
-Assets/Tests/EditMode/   42 tests - board, pieces, scoring, headless game sims
-Assets/Tests/PlayMode/   14 tests - bootstrap, placement, drag input, save/resume
+Assets/Tests/EditMode/   87 tests - board, pieces, scoring, difficulty curve,
+                                   junk fairness, run progress, headless sims
+Assets/Tests/PlayMode/   21 tests - bootstrap, placement, drag input, stages,
+                                   junk integration, save/resume
 ```
 
 Run them from **Window ▸ General ▸ Test Runner**.
@@ -147,22 +149,23 @@ the drag-layer reparenting are covered as well.
 
 ## Deployment
 
-The playable build lives in `docs/` and GitHub Pages serves it directly
-(Settings ▸ Pages ▸ Deploy from a branch ▸ `main` / `docs`). There is no CI
-build step: building Unity on a runner would need a Unity licence in repository
-secrets, whereas committing the built player needs no secrets at all.
+`.github/workflows/ci.yml` runs the tests, builds the WebGL player and publishes
+it to GitHub Pages on every push to `main`. The player is **not** committed: a
+16MB build added to git on every rebuild would grow the repository without bound.
 
-Rebuild and redeploy after changing the project:
+The workflow calls the same entry point a developer would use locally, so CI and
+a local build cannot drift apart:
 
 ```
 Unity.exe -quit -batchmode -nographics \
           -projectPath <project> \
           -buildTarget WebGL \
           -executeMethod BlockBlast.EditorTools.WebGLBuilder.Build \
+          -buildOutput build/WebGL \
           -logFile build.log
 ```
 
-then commit `docs/` and push — Pages picks it up within a minute.
+`-buildOutput` (or `BUILD_OUTPUT`) is optional and defaults to `docs`.
 
 `WebGLBuilder` applies the two settings the deployment depends on rather than
 trusting whatever is saved in ProjectSettings: **Gzip compression with the
@@ -172,8 +175,45 @@ without the fallback the page loads to a black screen. It also treats a build as
 failed when the error count is non-zero or `index.html` is missing, because Unity
 will otherwise report "Succeeded" for a build that wrote nothing at all.
 
-To test the exact bytes Pages will serve, run any static server over `docs/`:
+To test the exact bytes Pages will serve, run any static server over the build:
 
 ```
-python -m http.server 8123 --directory docs
+python -m http.server 8123 --directory build/WebGL
 ```
+
+## Continuous integration
+
+Setting the pipeline up needs three one-time steps.
+
+**1. Give the push token `workflow` scope.** GitHub rejects any push that adds or
+edits `.github/workflows/` unless the token carries it:
+
+```
+gh auth refresh -s workflow
+```
+
+or create a personal access token with `repo` + `workflow` and replace the stored
+credential (Windows: Credential Manager, entry `git:https://github.com`).
+
+**2. Add the `UNITY_LICENSE` secret.** GameCI cannot activate Unity without it.
+For a Personal licence it is a manual round trip:
+
+- run the `game-ci/unity-request-activation-file` action once (or
+  `unity-editor -createManualActivationFile`) to produce a `.alf`
+- upload the `.alf` at <https://license.unity3d.com/manual> and download the
+  `.ulf` it returns
+- paste the **entire contents** of the `.ulf` into
+  *Settings ▸ Secrets and variables ▸ Actions ▸ New repository secret*, named
+  `UNITY_LICENSE`
+
+**3. Point Pages at Actions.** *Settings ▸ Pages ▸ Source* → **GitHub Actions**
+(replacing "Deploy from a branch"). Do this **before** removing the committed
+`docs/` folder, or the site 404s in the gap between the two.
+
+Notes:
+- Unity images are pulled per run; a cold build is ~15-25 minutes. The `Library`
+  cache cuts subsequent runs substantially.
+- Actions minutes are free on public repositories.
+- Pull requests from forks skip the Unity jobs, because forked PRs cannot read
+  secrets and would otherwise fail at licence activation rather than on anything
+  real.

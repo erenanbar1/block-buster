@@ -20,7 +20,27 @@ namespace BlockBlast.EditorTools
     /// </summary>
     public static class WebGLBuilder
     {
-        const string OutputDirectory = "docs";
+        const string DefaultOutputDirectory = "docs";
+
+        /// <summary>
+        /// Where the player is written. Overridable so CI can build somewhere other than
+        /// the folder Pages used to serve, without the two build paths diverging:
+        ///   -buildOutput &lt;path&gt;   command line
+        ///   BUILD_OUTPUT=&lt;path&gt;   environment
+        /// </summary>
+        static string OutputDirectory
+        {
+            get
+            {
+                var args = Environment.GetCommandLineArgs();
+                for (int i = 0; i < args.Length - 1; i++)
+                    if (args[i] == "-buildOutput" && !string.IsNullOrEmpty(args[i + 1]))
+                        return args[i + 1];
+
+                string fromEnv = Environment.GetEnvironmentVariable("BUILD_OUTPUT");
+                return string.IsNullOrEmpty(fromEnv) ? DefaultOutputDirectory : fromEnv;
+            }
+        }
 
         public static void Build()
         {
@@ -43,7 +63,10 @@ namespace BlockBlast.EditorTools
         {
             ApplySettings();
 
-            string output = Path.Combine(Directory.GetCurrentDirectory(), OutputDirectory);
+            string requested = OutputDirectory;
+            string output = Path.IsPathRooted(requested)
+                ? requested
+                : Path.Combine(Directory.GetCurrentDirectory(), requested);
             if (Directory.Exists(output))
             {
                 Debug.Log("[WebGLBuilder] Clearing " + output);

@@ -183,6 +183,10 @@ python -m http.server 8123 --directory build/WebGL
 
 ## Continuous integration
 
+`.github/workflows/ci.yml` tests, builds and deploys on every push to `main`.
+**[CI.md](CI.md) explains what CI is, why this project uses it, and how the
+pipeline is put together** - including the real failures that shaped it.
+
 Setting the pipeline up needs three one-time steps.
 
 **1. Give the push token `workflow` scope.** GitHub rejects any push that adds or

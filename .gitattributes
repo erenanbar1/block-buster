@@ -1,2 +1,37 @@
-# Auto detect text files and perform LF normalization
+# Auto detect text files and perform LF normalization, and let Unity's YAML merge
+# tool handle scenes and prefabs instead of a line-based diff.
 * text=auto
+
+*.cs        text diff=csharp
+*.md        text
+*.json      text
+*.asmdef    text
+*.gitignore text
+
+*.unity            text merge=unityyamlmerge eol=lf
+*.prefab           text merge=unityyamlmerge eol=lf
+*.asset            text merge=unityyamlmerge eol=lf
+*.meta             text merge=unityyamlmerge eol=lf
+*.mat              text merge=unityyamlmerge eol=lf
+*.controller       text merge=unityyamlmerge eol=lf
+*.anim             text merge=unityyamlmerge eol=lf
+*.physicMaterial2D text merge=unityyamlmerge eol=lf
+*.scenetemplate    text merge=unityyamlmerge eol=lf
+*.inputactions     text eol=lf
+
+# Binary assets
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.psd  binary
+*.tga  binary
+*.ttf  binary
+*.otf  binary
+*.wav  binary
+*.mp3  binary
+*.ogg  binary
+*.fbx  binary
+*.dll  binary
+*.so   binary
+*.a    binary
